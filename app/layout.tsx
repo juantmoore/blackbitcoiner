@@ -1,5 +1,6 @@
 import type { Metadata, Viewport } from "next";
 import { Big_Shoulders, Literata } from "next/font/google";
+import { Analytics } from "@vercel/analytics/next";
 import "./globals.css";
 
 const display = Big_Shoulders({
@@ -30,7 +31,10 @@ export const viewport: Viewport = {
 export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
   return (
     <html lang="en" className={`${display.variable} ${serif.variable}`}>
-      <body className="bg-desk text-paper antialiased">{children}</body>
+      <body className="bg-desk text-paper antialiased">
+        {children}
+        <Analytics />
+      </body>
     </html>
   );
 }
