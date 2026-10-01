@@ -1,5 +1,7 @@
+import type { ReactNode } from "react";
 import type { BookPage, Chapter, Figure, PartId } from "@/lib/book";
 import { chapters, pageNumberOf, parts, startSteps } from "@/lib/book";
+import { BookLineChart } from "./book-line-chart";
 
 // Every page is its own container, so its type and layout scale with the page,
 // not the viewport. That's what lets the sidebar thumbnails be real miniatures.
@@ -153,7 +155,7 @@ function Opener({ chapter }: { chapter: Chapter }) {
           </p>
         )}
         <blockquote className="mt-auto max-w-[38ch] border-t border-current/25 pt-[3cqw] font-serif text-[3.1cqw] leading-snug italic">
-          <p>“{chapter.quote}”</p>
+          <p className="whitespace-pre-line">“{chapter.quote}”</p>
         </blockquote>
       </div>
     </div>
@@ -180,11 +182,64 @@ function Folio({ n }: { n: number }) {
 const prose =
   "max-w-[62ch] font-serif text-[16.5px] leading-[1.72] text-ink/85 text-pretty @xl:text-[18px]";
 
+function withBold(text: string) {
+  return text.split("**").map((part, i) =>
+    i % 2 === 1 ? <strong key={i}>{part}</strong> : part,
+  );
+}
+
 function Body({ chapter, folio, uid }: { chapter: Chapter; folio: number; uid: string }) {
   const t = partTheme[chapter.part];
-  const at = chapter.figureAt ?? chapter.body.length;
-  const before = chapter.body.slice(0, at);
-  const after = chapter.body.slice(at);
+  const figures =
+    chapter.figures ??
+    (chapter.figure
+      ? [{ at: chapter.figureAt ?? chapter.body.length, figure: chapter.figure }]
+      : []);
+  const nodes: ReactNode[] = [];
+  let chunk: ReactNode[] = [];
+  const flushChunk = () => {
+    if (chunk.length === 0) return;
+    nodes.push(
+      <div key={`prose-${nodes.length}`} className={`space-y-[1.1em] ${prose}`}>
+        {chunk}
+      </div>,
+    );
+    chunk = [];
+  };
+  const figuresAt = (at: number) =>
+    figures
+      .filter((f) => f.at === at)
+      .map((f, i) => (
+        <div key={`figure-${at}-${i}`} className="my-[5cqw]">
+          <FigureView figure={f.figure} part={chapter.part} uid={uid} />
+        </div>
+      ));
+  chapter.body.forEach((entry, i) => {
+    const figs = figuresAt(i);
+    if (figs.length > 0) {
+      flushChunk();
+      nodes.push(...figs);
+    }
+    const key = `${i}-${entry.slice(0, 24)}`;
+    chunk.push(
+      entry.startsWith("## ") ? (
+        <h4
+          key={key}
+          className={`mt-[3cqw] font-display text-[max(19px,3.6cqw)] leading-tight font-bold ${t.accent}`}
+        >
+          {withBold(entry.replace(/^##\s*/, ""))}
+        </h4>
+      ) : (
+        <p key={key}>{withBold(entry)}</p>
+      ),
+    );
+  });
+  const tail = figuresAt(chapter.body.length);
+  if (tail.length > 0) {
+    flushChunk();
+    nodes.push(...tail);
+  }
+  flushChunk();
   return (
     <div className={`${sheet} bg-paper text-ink`}>
       <div className="flex flex-1 flex-col px-[7cqw] pt-[5cqw] pb-[4cqw]">
@@ -195,27 +250,16 @@ function Body({ chapter, folio, uid }: { chapter: Chapter; folio: number; uid: s
         <h3 className="mt-[6cqw] max-w-[20ch] font-display text-[max(30px,7.2cqw)] leading-[0.95] font-bold text-balance">
           {chapter.hook}
         </h3>
-        <div className={`mt-[4cqw] space-y-[1.1em] ${prose}`}>
-          {before.map((p) => (
-            <p key={p.slice(0, 24)}>{p}</p>
-          ))}
-        </div>
-        {chapter.figure && (
-          <div className="my-[5cqw]">
-            <FigureView figure={chapter.figure} part={chapter.part} uid={uid} />
-          </div>
-        )}
-        {after.length > 0 && (
-          <div className={`space-y-[1.1em] ${prose}`}>
-            {after.map((p) => (
-              <p key={p.slice(0, 24)}>{p}</p>
-            ))}
-          </div>
-        )}
+        <div className="mt-[4cqw]">{nodes}</div>
         <p className="mt-[6cqw] max-w-[26ch] font-display text-[max(24px,5.2cqw)] leading-[1.02] font-bold text-balance">
           <span className={`mb-[2cqw] block h-[0.9cqw] min-h-1 w-[10cqw] ${t.bg}`} aria-hidden="true" />
           {chapter.takeaway}
         </p>
+        {chapter.sources && (
+          <p className="mt-[3cqw] font-serif text-[max(11px,1.9cqw)] leading-snug text-ink/50 italic">
+            Sources: {chapter.sources}
+          </p>
+        )}
         <Folio n={folio} />
       </div>
     </div>
@@ -239,15 +283,16 @@ function FigureView({ figure, part, uid }: { figure: Figure; part: PartId; uid: 
         <figure>
           <dl className="grid grid-cols-1 gap-y-[4cqw] border-y border-rule py-[4cqw] @xl:grid-cols-3 @xl:gap-x-[4cqw]">
             {figure.items.map((s) => (
-              <div key={s.label} className="flex flex-col-reverse">
-                <dt className="mt-[1cqw] font-serif text-[max(13px,2.3cqw)] leading-snug text-ink/70">
-                  {s.label}
-                </dt>
+              <div key={s.label} className="flex flex-col">
                 <dd
                   className={`font-display text-[max(40px,8.6cqw)] leading-none font-extrabold tabular-nums ${t.accent}`}
                 >
                   {s.value}
                 </dd>
+                <dt className="mt-[1cqw] font-serif text-[max(13px,2.3cqw)] leading-snug text-ink/70">
+                  {s.label}
+                  {s.note && <span className="mt-[0.4cqw] block text-ink/45">{s.note}</span>}
+                </dt>
               </div>
             ))}
           </dl>
@@ -322,7 +367,9 @@ function FigureView({ figure, part, uid }: { figure: Figure; part: PartId; uid: 
                 </div>
                 <div className="mt-[1.4cqw] h-[3cqw] min-h-3 w-full rounded-[0.6cqw] bg-ink/[0.07]">
                   <div
-                    className={`h-full rounded-[0.6cqw] ${b.tone === "gold" ? "bg-wayout" : "bg-ink/55"}`}
+                    className={`h-full rounded-[0.6cqw] ${
+                      b.tone === "gold" ? "bg-wayout" : b.tone === "accent" ? t.bg : "bg-ink/55"
+                    }`}
                     style={{ width: `${Math.max(b.share, 1.5)}%` }}
                   />
                 </div>
@@ -334,12 +381,15 @@ function FigureView({ figure, part, uid }: { figure: Figure; part: PartId; uid: 
         </figure>
       );
 
+    case "line":
+      return <BookLineChart figure={figure} accentClass={t.accent} />;
+
     case "table":
       return (
         <figure>
           <div className="hidden grid-cols-[22cqw_1fr_1fr] gap-[3cqw] border-b-2 border-ink pb-[1.4cqw] font-serif text-[2.1cqw] italic text-ink/60 @xl:grid">
             <span>Asset</span>
-            <span>What works</span>
+            <span>Benefits</span>
             <span>The catch</span>
           </div>
           <dl>
@@ -352,7 +402,7 @@ function FigureView({ figure, part, uid }: { figure: Figure; part: PartId; uid: 
               >
                 <dt className="font-display text-[max(18px,3cqw)] leading-tight font-bold">{r.asset}</dt>
                 <dd className="font-serif text-[max(14px,2.15cqw)] leading-snug text-ink/80">
-                  <span className="font-medium text-ink/50 italic @xl:sr-only">What works: </span>
+                  <span className="font-medium text-ink/50 italic @xl:sr-only">Benefits: </span>
                   {r.good}
                 </dd>
                 <dd className="font-serif text-[max(14px,2.15cqw)] leading-snug text-ink/80">
@@ -421,6 +471,71 @@ function FigureView({ figure, part, uid }: { figure: Figure; part: PartId; uid: 
           <div className="space-y-[1cqw] font-serif text-[max(18px,3.8cqw)] leading-snug italic">
             {figure.lines.map((l) => (
               <p key={l}>{l}</p>
+            ))}
+          </div>
+        </figure>
+      );
+    case "flow":
+      return (
+        <figure>
+          <p className={`font-display text-[max(20px,4cqw)] leading-none font-bold ${t.accent}`}>
+            {figure.title}
+          </p>
+          <ol className="mt-[3cqw]">
+            {figure.steps.map((s, i) => (
+              <li key={s} className="flex flex-col items-center">
+                {i > 0 && (
+                  <span
+                    aria-hidden="true"
+                    className="my-[1.2cqw] text-ink/35"
+                  >
+                    ↓
+                  </span>
+                )}
+                <div className="w-full rounded-[1.2cqw] border border-rule px-[3.5cqw] py-[2.4cqw]">
+                  <p className={`font-display text-[max(13px,2.4cqw)] leading-none font-bold tabular-nums ${t.accent}`}>
+                    {i + 1}
+                  </p>
+                  <p className="mt-[0.6cqw] font-serif text-[max(15px,2.6cqw)] leading-snug text-ink/85">
+                    {s}
+                  </p>
+                </div>
+              </li>
+            ))}
+          </ol>
+        </figure>
+      );
+
+    case "cards":
+      return (
+        <figure>
+          {figure.caption && (
+            <p className="font-serif text-[max(14px,2.4cqw)] italic text-ink/70">{figure.caption}</p>
+          )}
+          <div
+            className={`mt-[3cqw] grid grid-cols-1 gap-[3cqw] ${
+              figure.items.length === 2 ? "@xl:grid-cols-2" : "@xl:grid-cols-3"
+            }`}
+          >
+            {figure.items.map((c) => (
+              <div
+                key={c.label}
+                className={`rounded-[1.2cqw] px-[3.5cqw] py-[3cqw] ${
+                  c.highlight ? "bg-wayout/20" : "bg-ink/[0.035]"
+                }`}
+              >
+                <p className={`font-display text-[max(18px,3.4cqw)] leading-none font-bold ${t.accent}`}>
+                  {c.label}
+                </p>
+                <p className="mt-[1.2cqw] font-serif text-[max(14px,2.4cqw)] leading-snug text-ink/85">
+                  {c.text}
+                </p>
+                {c.detail && (
+                  <p className="mt-[1cqw] font-serif text-[max(12px,2.1cqw)] leading-snug text-ink/55">
+                    {c.detail}
+                  </p>
+                )}
+              </div>
             ))}
           </div>
         </figure>
